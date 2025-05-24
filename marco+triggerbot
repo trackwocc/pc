@@ -1,0 +1,120 @@
+getgenv().Index = {
+    ["Start"] = {
+        ["TriggerBot"] = {
+            ['Notification'] = true,
+            ['Delay'] = 0.01,
+            ['Blacklisted'] = { "[Knife]" },
+            ['Keybind'] = 'T',
+            ['Macro'] = {
+                ['Keybind'] = 'V',
+                ['Active'] = false,
+                ['Acceleration'] = 0.0,
+                ['Variety'] = 'Third',
+            },
+        },
+    }
+}
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local Jairo = Players.LocalPlayer
+local mouse = Jairo:GetMouse()
+local settings = getgenv().Index.Start
+
+local JAIROUGH = false
+local function sendNotification(message)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Notification",
+        Text = message,
+        Duration = 2
+    })
+end
+
+local function isToolBlacklisted(tool)
+    for _, toolName in ipairs(settings.TriggerBot.Blacklisted) do
+        if tool.Name == toolName then
+            return true
+        end
+    end
+    return false
+end
+
+local function getTarget(instance)
+    if not instance then return false end
+    for _, player in next, Players:GetPlayers() do
+        if player.Character and (instance == player.Character or instance:IsDescendantOf(player.Character)) then
+            local bodyEffects = player.Character:FindFirstChild("BodyEffects")
+            local ko = bodyEffects and (bodyEffects:FindFirstChild("K.O") or bodyEffects:FindFirstChild("KO"))
+            if not (ko and ko.Value) then
+                return player
+            end
+        end
+    end
+    return false
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode[settings.TriggerBot.Keybind] then
+        JAIROUGH = not JAIROUGH
+        if settings.TriggerBot.Notification then
+            sendNotification("TriggerBot " .. (JAIROUGH and "Enabled" or "Disabled"))
+        end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if JAIROUGH then
+        local target = mouse.Target
+        if target and getTarget(target) then
+            if Jairo.Character then
+                local tool = Jairo.Character:FindFirstChildWhichIsA('Tool')
+                if tool and not isToolBlacklisted(tool) then
+                    task.wait(settings.TriggerBot.Delay)
+                    tool:Activate()
+                end
+            end
+        end
+    end
+end)
+
+local isMacroActive = false
+
+local function handleMacro()
+    local acceleration = settings.TriggerBot.Macro.Acceleration
+    if type(acceleration) ~= "number" then return end
+    local speed = acceleration / 100000
+
+    if settings.TriggerBot.Macro.Variety == "Third" then
+        repeat
+            task.wait(speed)
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.I, false, game)
+            task.wait(speed)
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.O, false, game)
+            task.wait(speed)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.I, false, game)
+            task.wait(speed)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.O, false, game)
+        until not isMacroActive
+    elseif settings.TriggerBot.Macro.Variety == "First" then
+        repeat
+            VirtualInputManager:SendMouseWheelEvent("0", "0", true, game)
+            wait(speed)
+            VirtualInputManager:SendMouseWheelEvent("0", "0", false, game)
+            wait(speed)
+        until not isMacroActive
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode[settings.TriggerBot.Macro.Keybind] then
+        isMacroActive = not isMacroActive
+        if isMacroActive then
+            handleMacro()
+        end
+    end
+end)
