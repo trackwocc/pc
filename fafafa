@@ -29,7 +29,7 @@ Kurai_Lib.Theme = {
     TabAccent = Color3.fromRGB(30, 30, 30),
 
     Content = Color3.fromRGB(25, 25, 25),
-    Accent = Color3.fromRGB(253, 181, 181),
+    Accent = Color3.fromRGB(253, 255, 255),
     
     Text = Color3.fromRGB(212, 212, 212),
     SubText = Color3.fromRGB(89, 89, 89)
